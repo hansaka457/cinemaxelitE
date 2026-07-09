@@ -1,111 +1,40 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import requests
-from bs4 import BeautifulSoup
+from flask import Flask, send_from_directory, jsonify
+import os
 
-app = Flask(__name__)
-CORS(app)
+# Root directory එක හොයාගන්නවා - index.html එක තියෙන්නේ api folder එකෙන් එලියේ
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-OMDB_API_KEY = '7a316873'
-CINESUBZ_BASE = 'https://cinesubz.co'
+app = Flask(__name__, static_folder=ROOT_DIR, static_url_path='')
 
-def get_omdb_data(imdb_id=None, title=None):
-    try:
-        if imdb_id:
-            url = f'http://www.omdbapi.com/?i={imdb_id}&apikey={OMDB_API_KEY}&plot=full'
-        elif title:
-            url = f'http://www.omdbapi.com/?t={title}&apikey={OMDB_API_KEY}&plot=full'
-        else:
-            return None
-        res = requests.get(url, timeout=10)
-        data = res.json()
-        if data.get('Response') == 'True':
-            return data
-        return None
-    except:
-        return None
+@app.route('/')
+def home():
+    """
+    Main page - index.html එක serve කරනවා
+    """
+    return send_from_directory(ROOT_DIR, 'index.html')
 
-def scrape_cinesubz_video(imdb_id):
-    try:
-        search_url = f'{CINESUBZ_BASE}/?s={imdb_id}'
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(search_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        first_post = soup.select_one('article.post h2.entry-title a')
-        if not first_post:
-            return None
-        post_url = first_post['href']
-        res = requests.get(post_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        dl_buttons = soup.select('a.download-button, a[href*=".mp4"], a[href*=".mkv"]')
-        video_url = None
-        subtitle_url = None
-        whatsapp_url = None
-        for btn in dl_buttons:
-            href = btn.get('href', '')
-            text = btn.get_text().lower()
-            if '.mp4' in href or '.mkv' in href:
-                if 'sub' in text or 'සිංහල' in text:
-                    subtitle_url = href
-                else:
-                    video_url = href
-            if 'whatsapp' in href or 'wa.me' in href:
-                whatsapp_url = href
-        if not video_url:
-            iframe = soup.select_one('iframe[src*="player"], iframe[src*="embed"]')
-            if iframe:
-                video_url = iframe['src']
-        if video_url:
-            return {
-                'name': 'CineSubz',
-                'videoUrl': video_url,
-                'subtitleUrl': subtitle_url,
-                'whatsappDownloadUrl': whatsapp_url
-            }
-        return None
-    except:
-        return None
+@app.route('/api/hello')
+def hello():
+    """
+    Test API endpoint එකක්
+    Browser එකේ /api/hello ගහලා බලපන් {"message": "Hello"} එනවද කියලා
+    """
+    return jsonify({"message": "Hello from Flask!", "status": "success"})
 
-@app.route('/api/omdb', methods=['GET'])
-def omdb_route():
-    imdb_id = request.args.get('i')
-    title = request.args.get('t')
-    if not imdb_id and not title:
-        return jsonify({'success': False, 'error': 'IMDb ID or Title required'}), 400
-    data = get_omdb_data(imdb_id=imdb_id, title=title)
-    if data:
-        return jsonify({'success': True, 'data': data})
+@app.route('/<path:path>')
+def serve_static(path):
+    """
+    CSS, JS, Images වගේ static files serve කරනවා
+    උදා: /style.css, /script.js, /images/logo.png
+    """
+    # File එක root එකේ තියනවද බලනවා
+    if os.path.exists(os.path.join(ROOT_DIR, path)):
+        return send_from_directory(ROOT_DIR, path)
     else:
-        return jsonify({'success': False, 'error': 'Movie not found'}), 404
+        return "404 - File Not Found", 404
 
-@app.route('/api/video/<imdb_id>', methods=['GET'])
-def video_route(imdb_id):
-    data = scrape_cinesubz_video(imdb_id)
-    if data:
-        return jsonify({'success': True, 'data': data})
-    else:
-        return jsonify({'success': False, 'error': 'Video not found'}), 404
-
-@app.route('/api/search', methods=['GET'])
-def search_route():
-    query = request.args.get('q')
-    if not query:
-        return jsonify({'success': False, 'error': 'Query required'}), 400
-    try:
-        url = f'http://www.omdbapi.com/?s={query}&apikey={OMDB_API_KEY}'
-        res = requests.get(url, timeout=10)
-        data = res.json()
-        if data.get('Response') == 'True':
-            results = []
-            for item in data.get('Search', [])[:10]:
-                results.append({
-                    'title': item.get('Title'),
-                    'image': item.get('Poster') if item.get('Poster') != 'N/A' else '',
-                    'rating': item.get('Year'),
-                    'imdbID': item.get('imdbID')
-                })
-            return jsonify({'success': True, 'data': results})
-        else:
-            return jsonify({'success': True, 'data': []})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+# Replit එකටයි local test වලටයි
+if __name__ == '__main__':
+    # 0.0.0.0 දාන්නේ Replit එකට public access දෙන්න
+    # Port 8080 Replit එකේ default
+    app.run(host='0.0.0.0', port=8080, debug=True)
